@@ -1,0 +1,110 @@
+#---------------------------------------------Data Management-----------------------------------------------
+#1a)Load and clean data
+setwd("~/Desktop/Winter/MKT Analytics/HW/HW2")
+filenm <- 'Homework 2 - MKT436R Data'
+df_ori <- data.frame(read.csv(paste(filenm, '.csv', sep = '')))
+
+#1b) Define a NA data frame
+df <- data.frame(matrix(NA, length(unique(df_ori$consumerID)), 6))
+colnames(df) <- c("consumerID", "rocky1","rocky2","rocky3","rocky4","rocky5")
+
+#1c)
+df <- dcast(df_ori, consumerID~rockyID,value.var = 'rating')
+colnames(df) <- c("consumerID", "rocky1","rocky2","rocky3","rocky4","rocky5")
+
+#--------------------------------------Data Exploration and Sampling Bias------------------------------------
+#2a) compare correlation to find similar and different moviews
+rating_cor = cor(x= df[,2:6], y= df[, 2:6], use = "complete.obs")
+max(rating_cor)
+library(data.table)
+#find the most similar movies
+setDT(melt(rating_cor))[Var1 != Var2, .SD[which.max(value)], keyby=Var1]
+#find the most different movies
+setDT(melt(rating_cor))[Var1 != Var2, .SD[which.min(value)], keyby=Var1]
+
+#2b) mean rating of each movie
+colMeans(df[2:6], na.rm = TRUE, dims = 1)
+
+#2c) subset data and average rating
+df_rating4 = df[!is.na(df$rocky4),]
+colMeans(df_rating4[2:6], na.rm = TRUE, dims = 1)
+
+#2d) load complete Data
+filenm <- 'Homework 2 - completeDB'
+completeDB <- data.frame(read.csv(paste(filenm, '.csv', sep = '')))
+
+#--------------------------------------Explanatory Models----------------------------------------------------
+#3a)
+firstInteractions = model.matrix(~( -1+rocky1+rocky2+rocky3+rocky4),completeDB)
+secondInteractions = model.matrix(~( -1+rocky1+rocky2+rocky3+rocky4)^2,completeDB)
+thirdInteractions = model.matrix(~( -1+rocky1+rocky2+rocky3+rocky4)^3,completeDB)
+fourthInteractions = model.matrix( ~( -1+rocky1+rocky2+rocky3+rocky4)^3,completeDB)
+
+#3b)
+model1 = lm(rocky5~firstInteractions, data = completeDB)
+model2 = lm(rocky5~secondInteractions, data = completeDB)
+model3 = lm(rocky5~thirdInteractions, data = completeDB)
+model4 = lm(rocky5~fourthInteractions, data = completeDB)
+
+#3c)calculate AIC, BIC for each regressions
+AIC(model1)
+AIC(model2)
+AIC(model3)
+AIC(model4)
+BIC(model1)
+BIC(model2)
+BIC(model3)
+BIC(model4)
+
+#4d) Lasso estimator
+install.packages("glmnet")
+library(glmnet)
+
+lambda <- 10^seq(10, -2, length = 100)
+lassoFit = glmnet(fourthInteractions, completeDB$rocky5, alpha = 1, lambda = lambda)
+predict(lassoFit, s = .05, type = 'coefficient')
+predict(lassoFit, s = .5, type = 'coefficient')
+
+#4e) cross validation
+lassoFitCV = cv.glmnet(fourthInteractions, completeDB$rocky5, alpha = 1)
+
+#4f)ridge estomator
+ridgeFitCV = cv.glmnet(fourthInteractions, completeDB$rocky5, alpha = 0)
+
+#4g) Extract the coefficient from the lasso and the ridge regression
+predict(lassoFitCV, s=lassoFitCV$lambda.min, type = 'coefficients')
+predict(ridgeFitCV, s=lassoFitCV$lambda.min, type = 'coefficients')
+
+#-----------------------------------Predictive Modelling-----------------------------------------------------
+#4a) Creat training and validation data sets
+
+isTraining1 = runif(nrow(completeDB)) <.8
+trainingData1 = subset(completeDB, isTraining1)
+ValidationData1 = subset(completeDB, !isTraining1)
+
+isTraining2 = runif(nrow(completeDB)) <.8
+trainingData2 = subset(completeDB, isTraining1)
+ValidationData2 = subset(completeDB, !isTraining1)
+
+#4b) Estimate statistical models
+
+rocky1 = completeDB$rocky1
+rocky2 = completeDB$rocky2
+rocky3 = completeDB$rocky3
+rocky4 = completeDB$rocky4
+rocky5 = completeDB$rocky5
+
+install.packages("earth")
+library(earth)
+model1 = earth(rocky5~rocky1+rocky2+rocky3+rocky4, data = completeDB, degree = 2)
+plotmo(model1)
+model2 = lm(rocky5~rocky1+rocky2+rocky3+rocky4, data = completeDB)
+mean((ValidationData1$rocky5 - 
+       predict(model2, ValidationData1))^2)
+mean((ValidationData2$rocky5 - 
+        predict(model2, ValidationData2))^2)
+
+mean((ValidationData1$rocky5 - 
+        predict(model1, ValidationData1))^2)
+mean((ValidationData2$rocky5 - 
+        predict(model1, ValidationData2))^2)
